@@ -1,0 +1,92 @@
+name: mtr qemu multiarch
+on:
+  - workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [mtr]
+        os_id: [alpine]
+        os_version_id: [edge]
+        arch: [i386, amd64, arm32v6, arm32v7, arm64v8, ppc64le, s390x]
+        include:
+          - arch: i386
+            docker_arch: linux/i386
+          - arch: amd64
+            docker_arch: linux/amd64
+          - arch: arm32v6
+            docker_arch: linux/arm/v6
+          - arch: arm32v7
+            docker_arch: linux/arm/v7
+          - arch: arm64v8
+            docker_arch: linux/arm64
+          - arch: ppc64le
+            docker_arch: linux/ppc64le
+          - arch: s390x
+            docker_arch: linux/s390x
+
+    name: ${{ matrix.name }} ${{ matrix.os_id }}:${{ matrix.os_version_id }} ${{ matrix.arch }}
+
+    env:
+      CDN: http://dl-cdn.alpinelinux.org/alpine/edge/main/
+      CXXFLAGS: "--static -static -std=c++17"
+      CPPFLAGS: "--static -static"
+      LDFLAGS: "--static -static"
+
+    steps:
+      - uses: actions/checkout@v2.3.4
+
+      - name: Docker multiarch bootstrap
+        run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+      - name: Create docker multiarch ${{ matrix.docker_arch }} container
+        run: docker run --name multiarch -it -d -w /root -e CXXFLAGS="${{ env.CXXFLAGS }}" -e CPPFLAGS="${{ env.CPPFLAGS }}" -e LDFLAGS="${{ env.LDFLAGS }}" --platform ${{ matrix.docker_arch }} -v ${{ github.workspace }}:/root ${{ matrix.arch }}/${{ matrix.os_id }}:${{ matrix.os_version_id }}
+
+      - name: Run apk update
+        run: docker exec multiarch apk update --repository=${{ env.CDN }}
+
+      - name: Run apk upgrade
+        run: docker exec multiarch apk upgrade --repository=${{ env.CDN }}
+
+      - name: Run apk to install the core build dependencies
+        run: docker exec multiarch apk add build-base pkgconf autoconf automake curl libtool git tar curl perl openssl-dev openssl-libs-static linux-headers
+
+      - name: clone ${{ matrix.name }}
+        run: docker exec multiarch git clone https://github.com/traviscross/mtr.git /root/${{ matrix.name }}
+
+      - name: Configure ${{ matrix.name }}
+        run: docker exec multiarch bash -c 'cd /root/${{ matrix.name }} && ./bootstrap.sh && ./configure --disable-shared --enable-static --prefix=/root'
+
+      - name: Build ${{ matrix.name }}
+        run: docker exec multiarch bash -c 'cd /root/${{ matrix.name }} && make -j$(nproc) && make install'
+
+      - name: Rename ${{ matrix.name }} to ${{ matrix.name }}-${{ matrix.arch }}
+        run: docker exec multiarch mv -f /root/sbin/${{ matrix.name }} /root/sbin/${{ matrix.name }}-${{ matrix.arch }}
+
+      - name: Rename ${{ matrix.name }}-packet to ${{ matrix.name }}-packet-${{ matrix.arch }}
+        run: docker exec multiarch mv -f /root/sbin/${{ matrix.name }}-packet /root/sbin/${{ matrix.name }}-packet-${{ matrix.arch }}
+
+      - name: Create path to binary env
+        run: echo "binary_path=$(echo ${{ github.workspace }}/sbin/${{ matrix.name }}-${{ matrix.arch }})" >> $GITHUB_ENV
+
+      - name: Create path to binary-packet env
+        run: echo "binary_packet_path=$(echo ${{ github.workspace }}/sbin/${{ matrix.name }}-packet-${{ matrix.arch }})" >> $GITHUB_ENV
+
+      - name: Create release name env
+        run: echo "binary_release_name=$(strings ${{ env.binary_path }} | sed -rn 's|^(mtr) ([0-9].*)|\1 \2|p' | head -n 1)" >> $GITHUB_ENV
+
+      - name: Create tag env
+        run: echo "binary_tag=$(strings ${{ env.binary_path }} | sed -rn 's|^(mtr) ([0-9].*)|\2|p' | head -n 1)" >> $GITHUB_ENV
+
+      - name: "Create release"
+        uses: ncipollo/release-action@v1
+        with:
+          prerelease: false
+          artifacts: "${{ env.binary_path }},${{ env.binary_packet_path }}"
+          replacesArtifacts: true
+          tag: "${{ env.binary_tag }}"
+          name: "${{ env.binary_release_name }}"
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}
