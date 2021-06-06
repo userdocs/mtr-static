@@ -1,6 +1,8 @@
 name: mtr qemu multiarch
 on:
-  - workflow_dispatch
+  push:
+  pull_request:
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -53,7 +55,7 @@ jobs:
       - name: Run apk to install the core build dependencies
         run: docker exec multiarch apk add build-base pkgconf autoconf automake curl libtool git tar curl perl openssl-dev openssl-libs-static linux-headers
 
-      - name: clone ${{ matrix.name }}
+      - name: Git clone ${{ matrix.name }}
         run: docker exec multiarch git clone https://github.com/traviscross/mtr.git /root/${{ matrix.name }}
 
       - name: Bootstrap ${{ matrix.name }}
@@ -65,7 +67,7 @@ jobs:
       - name: Make Build ${{ matrix.name }}
         run: docker exec -w /root/${{ matrix.name }} multiarch make -j$(nproc)
 
-      - name: MAke Install Build ${{ matrix.name }}
+      - name: Make Install Build ${{ matrix.name }}
         run: docker exec -w /root/${{ matrix.name }} multiarch make install
 
       - name: Rename ${{ matrix.name }} to ${{ matrix.name }}-${{ matrix.arch }}
