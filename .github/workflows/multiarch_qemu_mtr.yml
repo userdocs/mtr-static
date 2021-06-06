@@ -57,10 +57,10 @@ jobs:
         run: docker exec multiarch git clone https://github.com/traviscross/mtr.git /root/${{ matrix.name }}
 
       - name: Configure ${{ matrix.name }}
-        run: docker exec multiarch bash -c 'cd /root/${{ matrix.name }} && ./bootstrap.sh && ./configure --disable-shared --enable-static --prefix=/root'
+        run: docker exec -w /root/${{ matrix.name }} multiarch ./bootstrap.sh && ./configure --disable-shared --enable-static --prefix=/root
 
       - name: Build ${{ matrix.name }}
-        run: docker exec multiarch bash -c 'cd /root/${{ matrix.name }} && make -j$(nproc) && make install'
+        run: docker exec -w /root/${{ matrix.name }} multiarch make -j$(nproc) && make install
 
       - name: Rename ${{ matrix.name }} to ${{ matrix.name }}-${{ matrix.arch }}
         run: docker exec multiarch mv -f /root/sbin/${{ matrix.name }} /root/sbin/${{ matrix.name }}-${{ matrix.arch }}
